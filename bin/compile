@@ -1,0 +1,73 @@
+#!/bin/bash
+
+indent() {
+  sed 's/^/       /'
+}
+
+echo "-----> Install GNU bc"
+
+BUILD_DIR=$1
+CACHE_DIR=$2
+VENDOR_DIR="$BUILD_DIR/vendor"
+mkdir -p $VENDOR_DIR
+INSTALL_DIR="$VENDOR_DIR/bc"
+mkdir -p $INSTALL_DIR
+BC_VERSION="${BC_VERSION:-1.07}"
+CACHE_FILE="$CACHE_DIR/bc-$BC_VERSION.tar.gz"
+
+if [ ! -f $CACHE_FILE ]; then
+  # install bc
+  BC_FILE="bc-$BC_VERSION.tar.gz"
+  BC_DIR="bc-$BC_VERSION"
+  BC_URL="http://mirror.team-cymru.org/gnu/bc/$BC_FILE"
+
+  echo "-----> Downloading bc from $BC_URL"
+  wget $BC_URL -P $BUILD_DIR | indent
+
+  echo "-----> Extracting bc from $BUILD_DIR/$BC_FILE"
+  if [ ! -f $BUILD_DIR/$BC_FILE ]; then
+    echo "Error: Unable to download bc" | indent
+    ls $BUILD_DIR | indent
+    exit 1;
+  fi
+  tar xvf $BUILD_DIR/$BC_FILE | indent
+
+  echo "-----> Building bc"
+  cd $BC_DIR
+  export CPPFLAGS="-I$INSTALL_DIR/include"
+  export LDFLAGS="-L$INSTALL_DIR/lib"
+  ./configure --prefix=$INSTALL_DIR
+  make && make install
+  cd ..
+  rm -rf $BC_DIR
+
+  # cache for future deploys
+  echo "-----> Caching bc installation"
+  cd $VENDOR_DIR
+  REL_INSTALL_DIR="bc"
+  tar czf $REL_INSTALL_DIR.tar.gz $REL_INSTALL_DIR
+  mv $REL_INSTALL_DIR.tar.gz $CACHE_FILE
+
+else
+  # cache exists, extract it
+  echo "-----> Extracting bc $CACHE_FILE => $VENDOR_DIR"
+  tar xzf $CACHE_FILE -C $VENDOR_DIR
+fi
+
+echo "-----> Writing policy file"
+mkdir -p $INSTALL_DIR/etc/bc
+cat > $INSTALL_DIR/policy.xml <<EOF
+<policymap>
+  <policy domain="coder" rights="none" pattern="EPHEMERAL" />
+  <policy domain="coder" rights="none" pattern="HTTPS" />
+  <policy domain="coder" rights="none" pattern="MVG" />
+  <policy domain="coder" rights="none" pattern="MSL" />
+</policymap>
+EOF
+
+# update PATH and LD_LIBRARY_PATH
+echo "-----> Updating environment variables"
+PROFILE_PATH="$BUILD_DIR/.profile.d/bc.sh"
+ACTUAL_INSTALL_PATH="$HOME/vendor/bc"
+mkdir -p $(dirname $PROFILE_PATH)
+echo "export PATH=$ACTUAL_INSTALL_PATH/bin:\$PATH" >> $PROFILE_PATH
